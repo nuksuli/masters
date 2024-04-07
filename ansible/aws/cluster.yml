@@ -1,0 +1,141 @@
+- name: Create EKS Cluster with Node Group and Deploy Docker Image
+  hosts: localhost
+  gather_facts: false
+  vars:
+    aws_region: "<region>"
+    cluster_name: "<cluster-name>"
+    node_group_name: "node-group"
+    instance_type: "<instance_type>"
+    desired_capacity: 1
+    min_size: 1
+    max_size: 2
+    eks_cluster_role_arn: "<eks-cluster-role-arn>"
+    eks_node_group_role_arn: "<eks-node-group-role-arn>"
+    subnet_ids: "<subnet-ids>"
+    security_group_ids: "<security-group-ids>"
+    docker_image_backend: "backend-image-location"
+    docker_image_frontend: "frontend-image-location"
+    backend_deployment_name: "my-backend"
+    backend_load_balancer_name: "my-backend-load-balancer"
+    frontend_deployment_name: "my-frontend"
+    frontend_load_balancer_name: "my-frontend-load-balancer"
+
+  tasks:
+    - name: Create an EKS cluster
+      community.aws.eks_cluster:
+        name: "{{ cluster_name }}"
+        version: "1.21"
+        role_arn: "{{ eks_cluster_role_arn }}"
+        resources_vpc_config:
+          subnet_ids: "{{ subnet_ids.split(',') }}"
+          security_group_ids: "{{ security_group_ids.split(',') }}"
+        region: "{{ aws_region }}"
+        state: present
+
+    - name: Create a node group for the EKS cluster
+      community.aws.eks_node_group:
+        cluster_name: "{{ cluster_name }}"
+        nodegroup_name: "{{ node_group_name }}"
+        node_role_arn: "{{ eks_node_group_role_arn }}"
+        subnets: "{{ subnet_ids.split(',') }}"
+        scaling_config:
+          desired_size: "{{ desired_capacity }}"
+          min_size: "{{ min_size }}"
+          max_size: "{{ max_size }}"
+        instance_types: [ "{{ instance_type }}" ]
+        region: "{{ aws_region }}"
+        state: present
+    - name: Deploy backend image to the EKS cluster
+      k8s:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: "{{ backend_deployment_name }}"
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: "{{ backend_deployment_name }}"
+          template:
+            metadata:
+              labels:
+                app: "{{ backend_deployment_name }}"
+            spec:
+              containers:
+                - name: "{{ backend_deployment_name }}"
+                  image: "{{ docker_image }}"
+                  ports:
+                    - containerPort: 3000
+                  livenessProbe:
+                    - httpGet:
+                        - path: "/"
+                          port: 3000
+                  readinessProbe:
+                    - httpGet:
+                        - path: "/"
+                          port: 3000
+    - name: Expose backend deployment with a Load Balancer
+      k8s:
+        state: present
+        definition:
+          kind: Service
+          apiVersion: v1
+          metadata:
+            name: "{{ backend_load_balancer_name }}"
+          spec:
+            selector:
+              app: "{{ backend_deployment_name }}"
+            ports:
+              - protocol: TCP
+                port: 80
+                targetPort: 3000
+            type: LoadBalancer
+
+    - name: Deploy frontend image to the GKE cluster
+      k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: "{{ frontend_deployment_name }}"
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: "{{ frontend_deployment_name }}"
+            template:
+              metadata:
+                labels:
+                  app: "{{ frontend_deployment_name }}"
+              spec:
+                containers:
+                  - name: "{{ frontend_deployment_name }}"
+                    image: "{{ docker_image }}"
+                    ports:
+                      - containerPort: 80
+                    livenessProbe:
+                      - httpGet:
+                          - path: "/"
+                            port: 80
+                    readinessProbe:
+                      - httpGet:
+                          - path: "/"
+                            port: 80
+
+    - name: Expose frontend deployment with a Load Balancer
+      k8s:
+        state: present
+        definition:
+          kind: Service
+          apiVersion: v1
+          metadata:
+            name: "{{ frontend_load_balancer_name }}"
+          spec:
+            selector:
+              app: "{{ frontend_deployment_name }}"
+            ports:
+              - protocol: TCP
+                port: 80
+                targetPort: 80
+            type: LoadBalancer

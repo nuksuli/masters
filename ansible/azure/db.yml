@@ -1,0 +1,55 @@
+- name: Create MySQL Database in Azure
+  hosts: localhost
+  gather_facts: no
+  vars:
+    azure_subscription_id: "<subscription-id>"
+    azure_client_id: "<client-id>"
+    azure_secret: "<secret>"
+    azure_tenant: "<tenant-id>"
+    resource_group: "<resource-group-name>"
+    location: "<location>"
+    mysql_server_name: "mysql-instance"
+    database_name: "mydatabase"
+    administrator_login: "<admin-username>"
+    administrator_login_password: "<admin-password>"
+
+  tasks:
+    - name: Create a resource group
+      azure.azcollection.azure_rm_resourcegroup:
+        name: "{{ resource_group }}"
+        location: "{{ location }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+        state: present
+
+    - name: Create an Azure Database for MySQL server
+      azure.azcollection.azure_rm_mysqlserver:
+        resource_group: "{{ resource_group }}"
+        name: "{{ mysql_server_name }}"
+        location: "{{ location }}"
+        sku_name: "B_Gen5_2"
+        version: "5.7"
+        storage_mb: <storage_mb>
+        admin_username: "{{ administrator_login }}"
+        admin_password: "{{ administrator_login_password }}"
+        ssl_enforcement: "Enabled"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+        state: present
+
+    - name: Create a MySQL database on the server
+      azure.azcollection.azure_rm_mysqldatabase:
+        resource_group: "{{ resource_group }}"
+        server_name: "{{ mysql_server_name }}"
+        name: "{{ database_name }}"
+        charset: "utf8"
+        collation: "utf8_unicode_ci"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+        state: present

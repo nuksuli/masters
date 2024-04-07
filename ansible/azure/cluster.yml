@@ -1,0 +1,146 @@
+- name: Create AKS Cluster with Node Pool and Deploy Docker Image
+  hosts: localhost
+  gather_facts: false
+  vars:
+    azure_subscription_id: "<subscription-id>"
+    azure_client_id: "<client-id>"
+    azure_secret: "<secret>"
+    azure_tenant: "<tenant-id>"
+    resource_group: "<resource-group-name>"
+    location: "<location>"
+    cluster_name: "<cluster-name>"
+    node_size: "Standard_DS2_v2"
+    node_count: 1
+    docker_image_frontend: "<azure-container-registry-name>.azurecr.io/frontend:latest"
+    docker_image_backend: "<azure-container-registry-name>.azurecr.io/backend:latest"
+    backend_deployment_name: "my-backend"
+    backend_load_balancer_name: "my-backend-load-balancer"
+    frontend_deployment_name: "my-frontend"
+    frontend_load_balancer_name: "my-frontend-load-balancer"
+
+  tasks:
+    - name: Create an Azure Resource Group if it does not exist
+      azure.azcollection.azure_rm_resourcegroup:
+        name: "{{ resource_group }}"
+        location: "{{ location }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+
+    - name: Create AKS cluster with a node pool
+      azure.azcollection.azure_rm_aks:
+        name: "{{ cluster_name }}"
+        location: "{{ location }}"
+        resource_group: "{{ resource_group }}"
+        dns_prefix: "{{ cluster_name }}"
+        kubernetes_version: "1.19.11"
+        agent_pool_profiles:
+          - name: nodepool1
+            count: "{{ node_count }}"
+            vm_size: "{{ node_size }}"
+        service_principal:
+          client_id: "{{ azure_client_id }}"
+          client_secret: "{{ azure_secret }}"
+        subscription_id: "{{ azure_subscription_id }}"
+        client_id: "{{ azure_client_id }}"
+        secret: "{{ azure_secret }}"
+        tenant: "{{ azure_tenant }}"
+
+    - name: Deploy backend image to the Azure cluster
+      k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: "{{ backend_deployment_name }}"
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: "{{ backend_deployment_name }}"
+            template:
+              metadata:
+                labels:
+                  app: "{{ backend_deployment_name }}"
+              spec:
+                containers:
+                  - name: "{{ backend_deployment_name }}"
+                    image: "{{ docker_image_backend }}"
+                    ports:
+                      - containerPort: 3000
+                    livenessProbe:
+                      - httpGet:
+                          - path: "/"
+                            port: 3000
+                    readinessProbe:
+                      - httpGet:
+                          - path: "/"
+                            port: 3000
+
+    - name: Expose backend deployment with a Load Balancer
+      k8s:
+        state: present
+        definition:
+          kind: Service
+          apiVersion: v1
+          metadata:
+            name: "{{ backend_load_balancer_name }}"
+          spec:
+            selector:
+              app: "{{ backend_deployment_name }}"
+            ports:
+              - protocol: TCP
+                port: 80
+                targetPort: 3000
+            type: LoadBalancer
+
+    - name: Deploy frontend image to the Azure cluster
+      k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: "{{ frontend_deployment_name }}"
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: "{{ frontend_deployment_name }}"
+            template:
+              metadata:
+                labels:
+                  app: "{{ frontend_deployment_name }}"
+              spec:
+                containers:
+                  - name: "{{ frontend_deployment_name }}"
+                    image: "{{ docker_image_frontend }}"
+                    ports:
+                      - containerPort: 80
+                    livenessProbe:
+                      - httpGet:
+                          - path: "/"
+                            port: 80
+                    readinessProbe:
+                      - httpGet:
+                          - path: "/"
+                            port: 80
+
+    - name: Expose frontend deployment with a Load Balancer
+      k8s:
+        state: present
+        definition:
+          kind: Service
+          apiVersion: v1
+          metadata:
+            name: "{{ frontend_load_balancer_name }}"
+          spec:
+            selector:
+              app: "{{ frontend_deployment_name }}"
+            ports:
+              - protocol: TCP
+                port: 80
+                targetPort: 80
+            type: LoadBalancer

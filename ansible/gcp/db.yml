@@ -1,0 +1,31 @@
+- name: Create MySQL Database in GCP
+  hosts: localhost
+  gather_facts: no
+  vars:
+    gcp_project: "<project-id>"
+    gcp_cred_file: "./credentials.json"
+    instance_name: "mysql-instance"
+    database_name: "mydatabase"
+    region: "<region>"
+
+  tasks:
+    - name: Create a Google Cloud SQL instance
+      google.cloud.gcp_sql_instance:
+        name: "{{ instance_name }}"
+        project: "{{ gcp_project }}"
+        region: "{{ region }}"
+        settings:
+          tier: "<db-tier>"
+        state: present
+        auth_kind: serviceaccount
+        service_account_file: "{{ gcp_cred_file }}"
+
+    - name: Create a MySQL database
+      google.cloud.gcp_sql_database:
+        name: "{{ database_name }}"
+        instance: "{{ instance_name }}"
+        project: "{{ gcp_project }}"
+        charset: "utf8"
+        state: present
+        auth_kind: serviceaccount
+        service_account_file: "{{ gcp_cred_file }}"

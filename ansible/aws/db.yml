@@ -1,0 +1,37 @@
+- name: Create MySQL Database in AWS
+  hosts: localhost
+  gather_facts: no
+  vars:
+    aws_region: "<region>"
+    db_instance_identifier: "mysql-instance"
+    db_name: "mydatabase"
+    instance_class: "<instance_class"
+    allocated_storage: <allocated_storage>
+    db_username: "<username>"
+    db_password: "<password>"
+
+- tasks:
+    - name: Create an AWS RDS MySQL instance
+      community.aws.rds_instance:
+        engine: mysql
+        db_instance_identifier: "{{ db_instance_identifier }}"
+        allocated_storage: "{{ allocated_storage }}"
+        db_instance_class: "{{ instance_class }}"
+        name: "{{ db_name }}"
+        master_username: "{{ db_username }}"
+        master_user_password: "{{ db_password }}"
+        region: "{{ aws_region }}"
+        publicly_accessible: yes 
+        multi_az: no
+        state: present
+      register: rds
+
+    - name: Wait for RDS instance to be available
+      community.aws.rds:
+        command: facts
+        db_instance_identifier: "{{ db_instance_identifier }}"
+        region: "{{ aws_region }}"
+      register: rds_facts
+      until: rds_facts.instance.status == 'available'
+      retries: 60
+      delay: 30

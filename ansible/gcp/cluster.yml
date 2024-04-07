@@ -1,0 +1,137 @@
+- name: Create GKE Cluster with Node Pool and Deploy Docker Image
+  hosts: localhost
+  gather_facts: false
+  vars:
+    gcp_project: "<project-id>"
+    gcp_cred_file: "credentials.json"
+    cluster_name: "<cluster-name>"
+    zone: "<zone>"
+    docker_image_frontend: "eu.gcr.io/<project-id>/backend:latest"
+    docker_image_backend: "eu.gcr.io/<project-id>/frontend:latest"
+    backend_deployment_name: "my-backend"
+    backend_load_balancer_name: "my-backend-load-balancer"
+    frontend_deployment_name: "my-frontend"
+    frontend_load_balancer_name: "my-frontend-load-balancer"
+
+  tasks:
+    - name: Create a GKE cluster
+      google.cloud.gcp_container_cluster:
+        name: "{{ cluster_name }}"
+        project: "{{ gcp_project }}"
+        zone: "{{ zone }}"
+        initial_node_count: 1
+        state: present
+        auth_kind: serviceaccount
+        service_account_file: "{{ gcp_cred_file }}"
+
+    - name: Add a node pool to the GKE cluster
+      google.cloud.gcp_container_node_pool:
+        name: "default-pool"
+        cluster:
+          name: "{{ cluster_name }}"
+          zone: "{{ zone }}"
+          project: "{{ gcp_project }}"
+        project: "{{ gcp_project }}"
+        zone: "{{ zone }}"
+        initial_node_count: 1
+        state: present
+        auth_kind: serviceaccount
+        service_account_file: "{{ gcp_cred_file }}"
+
+    - name: Deploy backend image to the GKE cluster
+      k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: "{{ backend_deployment_name }}"
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: "{{ backend_deployment_name }}"
+            template:
+              metadata:
+                labels:
+                  app: "{{ backend_deployment_name }}"
+              spec:
+                containers:
+                  - name: "{{ backend_deployment_name }}"
+                    image: "{{ docker_image_backend }}"
+                    ports:
+                      - containerPort: 3000
+                    livenessProbe:
+                      - httpGet:
+                          - path: "/"
+                            port: 3000
+                    readinessProbe:
+                      - httpGet:
+                          - path: "/"
+                            port: 3000
+
+    - name: Expose backend deployment with a Load Balancer
+      k8s:
+        state: present
+        definition:
+          kind: Service
+          apiVersion: v1
+          metadata:
+            name: "{{ backend_load_balancer_name }}"
+          spec:
+            selector:
+              app: "{{ backend_deployment_name }}"
+            ports:
+              - protocol: TCP
+                port: 80
+                targetPort: 3000
+            type: LoadBalancer
+
+    - name: Deploy frontend image to the GKE cluster
+      k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: "{{ frontend_deployment_name }}"
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: "{{ frontend_deployment_name }}"
+            template:
+              metadata:
+                labels:
+                  app: "{{ frontend_deployment_name }}"
+              spec:
+                containers:
+                  - name: "{{ frontend_deployment_name }}"
+                    image: "{{ docker_image_frontend }}"
+                    ports:
+                      - containerPort: 80
+                    livenessProbe:
+                      - httpGet:
+                          - path: "/"
+                            port: 80
+                    readinessProbe:
+                      - httpGet:
+                          - path: "/"
+                            port: 80
+
+    - name: Expose frontend deployment with a Load Balancer
+      k8s:
+        state: present
+        definition:
+          kind: Service
+          apiVersion: v1
+          metadata:
+            name: "{{ frontend_load_balancer_name }}"
+          spec:
+            selector:
+              app: "{{ frontend_deployment_name }}"
+            ports:
+              - protocol: TCP
+                port: 80
+                targetPort: 80
+            type: LoadBalancer
